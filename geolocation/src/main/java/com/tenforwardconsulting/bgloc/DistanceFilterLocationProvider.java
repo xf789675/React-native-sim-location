@@ -23,8 +23,10 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
-import android.os.PowerManager;
 import android.widget.Toast;
+import android.telephony.TelephonyManager;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,10 +35,10 @@ import com.marianhello.bgloc.LocationService;
 import com.marianhello.logging.LoggerManager;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 import static java.lang.Math.abs;
-import static java.lang.Math.pow;
 import static java.lang.Math.round;
 
 
@@ -77,6 +79,8 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
 
     private org.slf4j.Logger log;
 
+    private UploadLocationInfo uploadLocationInfo;
+
     public DistanceFilterLocationProvider(LocationService context) {
         super(context);
         PROVIDER_ID = 0;
@@ -96,31 +100,61 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
         getLocationPI = PendingIntent.getBroadcast(locationService, 0, new Intent(GET_LOCATION_ACTION), 0);
         registerReceiver(getLocationReceiver, new IntentFilter(GET_LOCATION_ACTION));
 
-        // PowerManager pm = (PowerManager) locationService.getSystemService(Context.POWER_SERVICE);
-        // wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
-        // wakeLock.acquire();
+        try {
+            TelephonyManager telManager = (TelephonyManager) locationService.getSystemService(Context.TELEPHONY_SERVICE);
+
+            SubscriptionManager manager = (SubscriptionManager) locationService.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+
+            List<SubscriptionInfo> subscriptionInfos = manager.getActiveSubscriptionInfoList();
+
+            List<UploadLocationInfo> list = new ArrayList<UploadLocationInfo>();
+            for (SubscriptionInfo subInfo : subscriptionInfos) {
+                CharSequence carrierName = subInfo.getCarrierName();
+                String countryIso = subInfo.getCountryIso();
+                int dataRoaming = subInfo.getDataRoaming();  // 1 is enabled ; 0 is disabled
+                CharSequence displayName = subInfo.getDisplayName();
+                String iccId = subInfo.getIccId();
+                int mcc = subInfo.getMcc();
+                int mnc = subInfo.getMnc();
+                String number = subInfo.getNumber();
+                int simSlotIndex = subInfo.getSimSlotIndex();
+                int subscriptionId = subInfo.getSubscriptionId();
+                boolean networkRoaming = telManager.isNetworkRoaming();
+                String deviceId = telManager.getDeviceId(simSlotIndex);
+
+                UploadLocationInfo tInfo = new UploadLocationInfo();
+                tInfo.setCarrierName(carrierName.toString());
+                tInfo.setCountryIso(countryIso);
+                tInfo.setDataRoaming(dataRoaming);
+                tInfo.setDeviceId(deviceId);
+                tInfo.setDisplayName(displayName.toString());
+                tInfo.setIccId(iccId);
+                tInfo.setMcc(mcc);
+                tInfo.setMnc(mnc);
+                tInfo.setNetworkRoaming(networkRoaming);
+                tInfo.setNumber(number);
+                tInfo.setSimSlotIndex(simSlotIndex);
+                tInfo.setSubscriptionId(subscriptionId);
+                list.add(tInfo);
+            }
+            if (list.size() > 0)
+                uploadLocationInfo = list.get(0);
+            // PowerManager pm = (PowerManager) locationService.getSystemService(Context.POWER_SERVICE);
+            // wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
+            // wakeLock.acquire();
+
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
     }
 
     public void startRecording() {
         log.info("Start recording");
-        scaledDistanceFilter = config.getDistanceFilter();
-        setPace(false);
-    }
-
-    public void stopRecording() {
-        log.info("stopRecording not implemented yet");
-    }
-
-    /**
-     *
-     * @param value set true to engage "aggressive", battery-consuming tracking, false for stationary-region tracking
-     */
-    private void setPace(Boolean value) {
-        log.info("Setting pace: {}", value);
-
+        if (config.isDebugging()) {
+            Toast.makeText(locationService, "Service running.....", Toast.LENGTH_LONG).show();
+        }
         try {
             locationManager.removeUpdates(this);
-
             // Turn on each provider aggressively for a short period of time
             List<String> matchingProviders = locationManager.getAllProviders();
             for (String provider: matchingProviders) {
@@ -128,20 +162,42 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
                     locationManager.requestLocationUpdates(provider, config.getInterval() / 2, 0, this);
                 }
             }
+        } catch (SecurityException e) {
+            if (config.isDebugging()) {
+                Toast.makeText(locationService, "Security exception: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+            log.error("Security exception: {}", e.getMessage());
+            this.handleSecurityException(e);
+        }
+        setPace();
+    }
+
+    public void stopRecording() {
+        log.info("stopRecording not implemented yet");
+    }
+
+
+    private void setPace() {
+        log.info("Setting pace: {}");
+
+        try {
             alarmManager.cancel(getLocationPI);
             alarmManager.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + config.getInterval(), getLocationPI);
 
         } catch (SecurityException e) {
+            if (config.isDebugging()) {
+                Toast.makeText(locationService, "Security exception: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
             log.error("Security exception: {}", e.getMessage());
             this.handleSecurityException(e);
         }
     }
 
     /**
-    * Translates a number representing desired accuracy of Geolocation system from set [0, 10, 100, 1000].
-    * 0:  most aggressive, most accurate, worst battery drain
-    * 1000:  least aggressive, least accurate, best for battery.
-    */
+     * Translates a number representing desired accuracy of Geolocation system from set [0, 10, 100, 1000].
+     * 0:  most aggressive, most accurate, worst battery drain
+     * 1000:  least aggressive, least accurate, best for battery.
+     */
     private Integer translateDesiredAccuracy(Integer accuracy) {
         switch (accuracy) {
             case 1000:
@@ -166,8 +222,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
      * Returns the most accurate and timely previously detected location.
      * Where the last result is beyond the specified maximum distance or
      * latency a one-off location update is returned via the {@link LocationListener}
-     * specified in {@link setChangedLocationListener}.
-     * @param minTime Minimum time required between location updates.
+     * specified
      * @return The most accurate and / or timely previously detected location.
      */
     public Location getLastBestLocation() {
@@ -191,7 +246,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
                     continue;
                 Location location = locationManager.getLastKnownLocation(provider);
                 if (location != null) {
-                    
+
                     log.debug("Test provider={} lat={} lon={} acy={} v={}m/s time={}", provider, location.getLatitude(), location.getLongitude(), location.getAccuracy(), location.getSpeed(), location.getTime());
                     float accuracy = location.getAccuracy();
                     long time = location.getTime();
@@ -234,25 +289,38 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
             Location location = getLastBestLocation();
             if(location != null) {
                 //handleLocation(location);
-                ObjectMapper objectMapper = new ObjectMapper();
-                String json = null;
-                try {
-                    json = objectMapper.writeValueAsString(location);
-                } catch (JsonProcessingException e) {
-                    e.printStackTrace();
-                }
-                try {
-                    PostHandler.post("http://67.209.181.134:3000/position", json);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+                uploadLocationInfo.setLocation(location);
+                sendLocation();
             } else {
                 if (config.isDebugging()) {
                     Toast.makeText(locationService, "get no location!", Toast.LENGTH_LONG).show();
                 }
             }
+            setPace();
         }
     };
+
+    private void sendLocation() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        String json = null;
+        try {
+            json = objectMapper.writeValueAsString(uploadLocationInfo);
+
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
+        try {
+            String result = PostHandler.post("http://67.209.181.134:3000/position", json);
+            if (config.isDebugging()) {
+                Toast.makeText(locationService, "Upload position result: " + result, Toast.LENGTH_LONG).show();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            if (config.isDebugging()) {
+                Toast.makeText(locationService, "Upload position failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        }
+    }
 
     public void onProviderDisabled(String provider) {
         // TODO Auto-generated method stub
