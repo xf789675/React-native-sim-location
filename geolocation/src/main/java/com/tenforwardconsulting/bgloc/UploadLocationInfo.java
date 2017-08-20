@@ -20,6 +20,7 @@ public class UploadLocationInfo {
   private boolean networkRoaming;
   private String deviceId;
   private Location location;
+  private long time;
 
   public String getCarrierName() {
     return carrierName;
@@ -123,5 +124,13 @@ public class UploadLocationInfo {
 
   public void setLocation(Location location) {
     this.location = location;
+  }
+
+  public long getTime() {
+    return time;
+  }
+
+  public void setTime(long time) {
+    this.time = time;
   }
 }

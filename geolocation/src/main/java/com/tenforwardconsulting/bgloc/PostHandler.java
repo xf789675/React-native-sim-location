@@ -14,7 +14,7 @@ public class PostHandler {
 
 
 
-  public static String post(String url, String json) throws IOException {
+  public static int post(String url, String json) throws IOException {
     OkHttpClient client = new OkHttpClient();
     RequestBody body = RequestBody.create(JSON, json);
     Request request = new Request.Builder()
@@ -22,7 +22,7 @@ public class PostHandler {
       .post(body)
       .build();
     try (Response response = client.newCall(request).execute()) {
-      return response.body().string();
+      return response.code();
     }
   }
 }

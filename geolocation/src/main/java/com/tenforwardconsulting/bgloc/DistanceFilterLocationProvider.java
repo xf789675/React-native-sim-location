@@ -18,10 +18,15 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.database.SQLException;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.widget.Toast;
 import android.telephony.TelephonyManager;
@@ -32,14 +37,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.marianhello.bgloc.AbstractLocationProvider;
 import com.marianhello.bgloc.LocationService;
+import com.marianhello.bgloc.data.LocationDAO;
 import com.marianhello.logging.LoggerManager;
 
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.List;
-
-import static java.lang.Math.abs;
-import static java.lang.Math.round;
 
 
 public class DistanceFilterLocationProvider extends AbstractLocationProvider implements LocationListener {
@@ -80,6 +84,9 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
     private org.slf4j.Logger log;
 
     private UploadLocationInfo uploadLocationInfo;
+    private Boolean hasConnectivity = true;
+
+    private LocationDAO dao;
 
     public DistanceFilterLocationProvider(LocationService context) {
         super(context);
@@ -288,8 +295,9 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
             }
             Location location = getLastBestLocation();
             if(location != null) {
-                //handleLocation(location);
+//                handleLocation(location);
                 uploadLocationInfo.setLocation(location);
+                uploadLocationInfo.setTime(System.currentTimeMillis());
                 sendLocation();
             } else {
                 if (config.isDebugging()) {
@@ -300,25 +308,68 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
         }
     };
 
-    private void sendLocation() {
-        ObjectMapper objectMapper = new ObjectMapper();
-        String json = null;
-        try {
-            json = objectMapper.writeValueAsString(uploadLocationInfo);
+    private class PostLocationTask extends AsyncTask<UploadLocationInfo, Integer, Boolean> {
+        @Override
+        protected Boolean doInBackground(UploadLocationInfo... locations) {
+            boolean uploadSuccess = true;
+            ObjectMapper objectMapper = new ObjectMapper();
+            UploadLocationInfo location = locations[0];
 
-        } catch (JsonProcessingException e) {
-            e.printStackTrace();
+            String json = null;
+            try {
+                json = objectMapper.writeValueAsString(location);
+
+            } catch (JsonProcessingException e) {
+                e.printStackTrace();
+            }
+
+
+            int responseCode = 0;
+            try {
+                responseCode = PostHandler.post("http://67.209.181.134:3000/position", json);
+                if (config.isDebugging()) {
+                    Toast.makeText(locationService, "Upload position result: " + responseCode, Toast.LENGTH_LONG).show();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+                if (config.isDebugging()) {
+                    Toast.makeText(locationService, "Upload position failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+                hasConnectivity = isNetworkAvailable();
+                uploadSuccess = false;
+            }
+
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                if (config.isDebugging()) {
+                    Toast.makeText(locationService, "Upload position failed: " + responseCode, Toast.LENGTH_LONG).show();
+                }
+                uploadSuccess = false;
+            }
+
+            if(!uploadSuccess) {
+                persistLocation(location);
+            }
+
+
+            return true;
         }
+    }
+
+    private void persistLocation (UploadLocationInfo location) {
         try {
-            String result = PostHandler.post("http://67.209.181.134:3000/position", json);
-            if (config.isDebugging()) {
-                Toast.makeText(locationService, "Upload position result: " + result, Toast.LENGTH_LONG).show();
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-            if (config.isDebugging()) {
-                Toast.makeText(locationService, "Upload position failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            }
+            dao.persistLocation(location);
+        } catch (SQLException e) {
+            log.error("Failed to persist location: {} error: {}", location.toString(), e.getMessage());
+        }
+    }
+
+    private void sendLocation() {
+        PostLocationTask task = new DistanceFilterLocationProvider.PostLocationTask();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
+            task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, uploadLocationInfo);
+        }
+        else {
+            task.execute(uploadLocationInfo);
         }
     }
 
@@ -353,5 +404,19 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
         unregisterReceiver(getLocationReceiver);
 
         // wakeLock.release();
+    }
+
+    private BroadcastReceiver connectivityChangeReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            hasConnectivity = isNetworkAvailable();
+        }
+    };
+
+    private boolean isNetworkAvailable() {
+        ConnectivityManager cm =
+          (ConnectivityManager) locationService.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        return activeNetwork != null && activeNetwork.isConnectedOrConnecting();
     }
 }
