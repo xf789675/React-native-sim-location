@@ -176,7 +176,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
             log.error("Security exception: {}", e.getMessage());
             this.handleSecurityException(e);
         }
-        setPace();
+        setPace(false);
     }
 
     public void stopRecording() {
@@ -184,12 +184,14 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
     }
 
 
-    private void setPace() {
+    private void setPace(boolean isSend) {
         log.info("Setting pace: {}");
-
+        long sendTime = System.currentTimeMillis();
+        if(isSend)
+            sendTime += config.getInterval();
         try {
             alarmManager.cancel(getLocationPI);
-            alarmManager.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + config.getInterval(), getLocationPI);
+            alarmManager.set(AlarmManager.RTC_WAKEUP, sendTime, getLocationPI);
 
         } catch (SecurityException e) {
             if (config.isDebugging()) {
@@ -304,7 +306,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
                     Toast.makeText(locationService, "get no location!", Toast.LENGTH_LONG).show();
                 }
             }
-            setPace();
+            setPace(true);
         }
     };
 
