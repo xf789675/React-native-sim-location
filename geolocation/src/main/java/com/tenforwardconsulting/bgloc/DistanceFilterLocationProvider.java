@@ -381,8 +381,10 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
 
     // resend location which persisted and if success delete it
     private void batchSendLocations() {
+
         List<BackgroundLocation> bgList = (List<BackgroundLocation>) dao.getAllLocations();
         if(bgList != null && bgList.size() > 0) {
+            log.info("Batch send location begin!");
             ObjectMapper objectMapper = new ObjectMapper();
             List<UploadLocationInfo> list = new ArrayList<>();
             for(BackgroundLocation location : bgList) {
@@ -411,6 +413,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
                     task.execute(locationArray);
                 }
             }
+            log.info("Batch send location end!");
         }
     }
 

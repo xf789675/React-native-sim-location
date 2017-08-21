@@ -256,11 +256,6 @@ public class SQLiteLocationDAO implements LocationDAO {
     db.update(LocationEntry.TABLE_NAME, values, null, null);
   }
 
-  @Override
-  public List<UploadLocationInfo> getPersistLocations() {
-    return null;
-  }
-
   private BackgroundLocation hydrate(Cursor c) {
     BackgroundLocation l = new BackgroundLocation(c.getString(c.getColumnIndex(LocationEntry.COLUMN_NAME_PROVIDER)));
     l.setTime(c.getLong(c.getColumnIndex(LocationEntry.COLUMN_NAME_TIME)));
