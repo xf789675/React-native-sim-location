@@ -37,6 +37,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.marianhello.bgloc.AbstractLocationProvider;
 import com.marianhello.bgloc.LocationService;
+import com.marianhello.bgloc.data.BackgroundLocation;
+import com.marianhello.bgloc.data.DAOFactory;
 import com.marianhello.bgloc.data.LocationDAO;
 import com.marianhello.logging.LoggerManager;
 
@@ -153,6 +155,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
         } catch(Exception e) {
             e.printStackTrace();
         }
+        dao = (DAOFactory.createLocationDAO(locationService));
     }
 
     public void startRecording() {
@@ -313,45 +316,46 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
     private class PostLocationTask extends AsyncTask<UploadLocationInfo, Integer, Boolean> {
         @Override
         protected Boolean doInBackground(UploadLocationInfo... locations) {
-            boolean uploadSuccess = true;
             ObjectMapper objectMapper = new ObjectMapper();
-            UploadLocationInfo location = locations[0];
+            for(UploadLocationInfo location : locations) {
+                boolean uploadSuccess = true;
+                String json = null;
+                try {
+                    json = objectMapper.writeValueAsString(location);
 
-            String json = null;
-            try {
-                json = objectMapper.writeValueAsString(location);
-
-            } catch (JsonProcessingException e) {
-                e.printStackTrace();
-            }
-
-
-            int responseCode = 0;
-            try {
-                responseCode = PostHandler.post("http://67.209.181.134:3000/position", json);
-                if (config.isDebugging()) {
-                    Toast.makeText(locationService, "Upload position result: " + responseCode, Toast.LENGTH_LONG).show();
+                } catch (JsonProcessingException e) {
+                    e.printStackTrace();
                 }
-            } catch (IOException e) {
-                e.printStackTrace();
-                if (config.isDebugging()) {
-                    Toast.makeText(locationService, "Upload position failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+
+                if (hasConnectivity) {
+                    int responseCode = 0;
+                    try {
+                        responseCode = PostHandler.post("http://67.209.181.134:3000/position", json);
+                        log.info("Upload position result: " + responseCode);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        log.error("Upload position failed: " + e.getMessage());
+                        hasConnectivity = isNetworkAvailable();
+                        uploadSuccess = false;
+                    }
+
+                    if (responseCode != HttpURLConnection.HTTP_OK) {
+                        log.info("Upload position failed: " + responseCode);
+                        uploadSuccess = false;
+                    }
+                } else {
+                    log.warn("Network connection has lost!");
                 }
-                hasConnectivity = isNetworkAvailable();
-                uploadSuccess = false;
-            }
 
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                if (config.isDebugging()) {
-                    Toast.makeText(locationService, "Upload position failed: " + responseCode, Toast.LENGTH_LONG).show();
+                if (!uploadSuccess) {
+                    persistLocation(location);
+                } else {
+                    Long locationId = location.getId();
+                    if (locationId != null) {
+                        dao.deleteLocation(locationId);
+                    }
                 }
-                uploadSuccess = false;
             }
-
-            if(!uploadSuccess) {
-                persistLocation(location);
-            }
-
 
             return true;
         }
@@ -372,6 +376,41 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
         }
         else {
             task.execute(uploadLocationInfo);
+        }
+    }
+
+    // resend location which persisted and if success delete it
+    private void batchSendLocations() {
+        List<BackgroundLocation> bgList = (List<BackgroundLocation>) dao.getAllLocations();
+        if(bgList != null && bgList.size() > 0) {
+            ObjectMapper objectMapper = new ObjectMapper();
+            List<UploadLocationInfo> list = new ArrayList<>();
+            for(BackgroundLocation location : bgList) {
+                String message = location.getMessage();
+                if(message != null && message.length() > 0) {
+                    try {
+                        UploadLocationInfo upLocation = objectMapper.readValue(message, UploadLocationInfo.class);
+                        if(upLocation != null) {
+                            upLocation.setId(location.getLocationId());
+                            list.add(upLocation);
+                        }
+                    } catch (IOException e) {
+                        log.error("Parse string to UploadLocationInfo faild: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
+            }
+            if(list.size() > 0) {
+                UploadLocationInfo[] locationArray = new UploadLocationInfo[]{};
+                locationArray = list.toArray(locationArray);
+                PostLocationTask task = new DistanceFilterLocationProvider.PostLocationTask();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
+                    task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, locationArray);
+                }
+                else {
+                    task.execute(locationArray);
+                }
+            }
         }
     }
 
@@ -411,7 +450,12 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
     private BroadcastReceiver connectivityChangeReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            log.debug("status changed");
             hasConnectivity = isNetworkAvailable();
+            if(hasConnectivity) {
+                batchSendLocations();
+            }
+            log.warn("Network status changed: " + hasConnectivity);
         }
     };
 

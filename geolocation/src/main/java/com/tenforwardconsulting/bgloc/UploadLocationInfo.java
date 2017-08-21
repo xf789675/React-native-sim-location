@@ -21,6 +21,7 @@ public class UploadLocationInfo {
   private String deviceId;
   private Location location;
   private long time;
+  private Long id;
 
   public String getCarrierName() {
     return carrierName;
@@ -132,5 +133,13 @@ public class UploadLocationInfo {
 
   public void setTime(long time) {
     this.time = time;
+  }
+
+  public Long getId() {
+    return id;
+  }
+
+  public void setId(Long id) {
+    this.id = id;
   }
 }
