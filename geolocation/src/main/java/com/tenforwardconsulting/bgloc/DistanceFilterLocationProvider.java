@@ -194,7 +194,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
             sendTime += config.getInterval();
         try {
             alarmManager.cancel(getLocationPI);
-            alarmManager.set(AlarmManager.RTC_WAKEUP, sendTime, getLocationPI);
+            alarmManager.setExact(AlarmManager.RTC_WAKEUP, sendTime, getLocationPI);
 
         } catch (SecurityException e) {
             if (config.isDebugging()) {
@@ -326,7 +326,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
                 } catch (JsonProcessingException e) {
                     e.printStackTrace();
                 }
-
+                hasConnectivity = isNetworkAvailable();
                 if (hasConnectivity) {
                     int responseCode = 0;
                     try {
@@ -446,6 +446,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
         alarmManager.cancel(getLocationPI);
 
         unregisterReceiver(getLocationReceiver);
+        unregisterReceiver(connectivityChangeReceiver);
 
         // wakeLock.release();
     }
