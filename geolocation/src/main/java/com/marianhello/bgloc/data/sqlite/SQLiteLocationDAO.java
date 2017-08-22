@@ -131,9 +131,10 @@ public class SQLiteLocationDAO implements LocationDAO {
     return rowId;
   }
 
-  public void persistLocation(UploadLocationInfo location) {
+  public Long persistLocation(UploadLocationInfo location) {
     ContentValues values = getContentValues(location);
-    db.insertOrThrow(LocationEntry.TABLE_NAME, LocationEntry.COLUMN_NAME_NULLABLE, values);
+    long rowId = db.insertOrThrow(LocationEntry.TABLE_NAME, LocationEntry.COLUMN_NAME_NULLABLE, values);
+    return rowId;
   }
 
   /**
@@ -231,17 +232,15 @@ public class SQLiteLocationDAO implements LocationDAO {
   /**
    * Delete location by given locationId
    *
-   * Note: location is not actually deleted only flagged as non valid
+   * Note:
    * @param locationId
    */
   public void deleteLocation(Long locationId) {
-    ContentValues values = new ContentValues();
-    values.put(LocationEntry.COLUMN_NAME_VALID, 0);
 
     String whereClause = LocationEntry._ID + " = ?";
     String[] whereArgs = { String.valueOf(locationId) };
 
-    db.update(LocationEntry.TABLE_NAME, values, whereClause, whereArgs);
+    db.delete(LocationEntry.TABLE_NAME, whereClause, whereArgs);
   }
 
   /**
