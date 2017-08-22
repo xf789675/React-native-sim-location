@@ -86,7 +86,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
     private org.slf4j.Logger log;
 
     private UploadLocationInfo uploadLocationInfo;
-    private Boolean hasConnectivity = true;
+    private boolean hasConnectivity = true;
 
     private LocationDAO dao;
 
@@ -156,6 +156,8 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
             e.printStackTrace();
         }
         dao = (DAOFactory.createLocationDAO(locationService));
+
+        registerReceiver(connectivityChangeReceiver, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
     }
 
     public void startRecording() {
@@ -301,7 +303,18 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
             Location location = getLastBestLocation();
             if(location != null) {
 //                handleLocation(location);
-                uploadLocationInfo.setLocation(location);
+                AdaptedLocation adaptedLocation = new AdaptedLocation();
+                adaptedLocation.setLatitude(location.getLatitude());
+                adaptedLocation.setLongitude(location.getLongitude());
+                adaptedLocation.setAccuracy(location.getAccuracy());
+                adaptedLocation.setAltitude(location.getAltitude());
+                adaptedLocation.setBearing(location.getBearing());
+                adaptedLocation.setProvider(location.getProvider());
+                adaptedLocation.setTime(location.getTime());
+                adaptedLocation.setSpeed(location.getSpeed());
+                adaptedLocation.setFromMockProvider(location.isFromMockProvider());
+
+                uploadLocationInfo.setLocation(adaptedLocation);
                 uploadLocationInfo.setTime(System.currentTimeMillis());
                 sendLocation();
             } else {
@@ -345,6 +358,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
                     }
                 } else {
                     log.warn("Network connection has lost!");
+                    uploadSuccess = false;
                 }
 
                 if (!uploadSuccess) {
@@ -352,6 +366,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
                 } else {
                     Long locationId = location.getId();
                     if (locationId != null) {
+                        log.info("Delete location: " + locationId);
                         dao.deleteLocation(locationId);
                     }
                 }
@@ -363,7 +378,8 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
 
     private void persistLocation (UploadLocationInfo location) {
         try {
-            dao.persistLocation(location);
+            long id = dao.persistLocation(location);
+            log.info("Persist location id: " + id);
         } catch (SQLException e) {
             log.error("Failed to persist location: {} error: {}", location.toString(), e.getMessage());
         }
@@ -381,10 +397,10 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
 
     // resend location which persisted and if success delete it
     private void batchSendLocations() {
-
+        log.info("Batch send location begin!");
         List<BackgroundLocation> bgList = (List<BackgroundLocation>) dao.getAllLocations();
         if(bgList != null && bgList.size() > 0) {
-            log.info("Batch send location begin!");
+            log.info("Batch send location num" + bgList.size());
             ObjectMapper objectMapper = new ObjectMapper();
             List<UploadLocationInfo> list = new ArrayList<>();
             for(BackgroundLocation location : bgList) {
@@ -453,7 +469,7 @@ public class DistanceFilterLocationProvider extends AbstractLocationProvider imp
     private BroadcastReceiver connectivityChangeReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            log.debug("status changed");
+            log.info("status changed");
             hasConnectivity = isNetworkAvailable();
             if(hasConnectivity) {
                 batchSendLocations();

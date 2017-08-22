@@ -1,7 +1,5 @@
 package com.tenforwardconsulting.bgloc;
 
-import android.location.Location;
-
 /**
  * Created by melody on 17/08/2017.
  */
@@ -19,7 +17,7 @@ public class UploadLocationInfo {
   private int subscriptionId;
   private boolean networkRoaming;
   private String deviceId;
-  private Location location;
+  private AdaptedLocation location;
   private long time;
   private Long id;
 
@@ -119,11 +117,11 @@ public class UploadLocationInfo {
     this.deviceId = deviceId;
   }
 
-  public Location getLocation() {
+  public AdaptedLocation getLocation() {
     return location;
   }
 
-  public void setLocation(Location location) {
+  public void setLocation(AdaptedLocation location) {
     this.location = location;
   }
 

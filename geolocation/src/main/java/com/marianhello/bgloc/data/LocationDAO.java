@@ -10,7 +10,7 @@ public interface LocationDAO {
     public Collection<BackgroundLocation> getValidLocations();
     public Long locationsForSyncCount(Long millisSinceLastBatch);
     public Long persistLocation(BackgroundLocation location);
-    public void persistLocation(UploadLocationInfo location);
+    public Long persistLocation(UploadLocationInfo location);
     public Long persistLocationWithLimit(BackgroundLocation location, Integer maxRows);
     public void deleteLocation(Long locationId);
     public void deleteAllLocations();
